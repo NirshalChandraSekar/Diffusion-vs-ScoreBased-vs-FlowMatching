@@ -47,19 +47,25 @@ class Sampler():
         last_alpha_cumprod = 1.0
         
         # TODO: Initialize an empty list to store the new beta values --> This is to collect the new betas corresponding to the chosen timesteps.
-
+        new_betas = []
         for i, alpha_cumprod in enumerate(self.alphas_cumprod):
-            pass # Delete this
+            
             # TODO: Check if the current timestep index 'i' is part of the selected timesteps (use_timesteps)
-            # TODO: If so, compute the corresponding beta value and append it to the empty list
-            # TODO: Update 'last_alpha_cumprod' to the current 'alpha_cumprod'
-            # TODO: Keep track of which original timesteps are being used by appending 'i' to 'self.timestep_map'
+            if i in use_timesteps:
+                # TODO: If so, compute the corresponding beta value and append it to the empty list
+                new_beta = 1 - (alpha_cumprod / last_alpha_cumprod)
+                new_betas.append(new_beta)
+                # TODO: Update 'last_alpha_cumprod' to the current 'alpha_cumprod'
+                last_alpha_cumprod = alpha_cumprod
+                # TODO: Keep track of which original timesteps are being used by appending 'i' to 'self.timestep_map'
+                self.timestep_map.append(i)
 
         # TODO: Convert 'new_betas' into a PyTorch tensor and store it in 'self.betas'
+        self.betas = torch.tensor(new_betas, dtype=torch.float64)
         # TODO: After updating betas, Recompute the related alpha terms to refresh alpha values
         # Hint: A helper function is already implemented in this hw3_step1_main.py file to refresh the alpha values
         # Understand which function does that and use it here.
-        
+        self.alpha_init()
         return torch.tensor(self.timestep_map)
     
     def get_variance(self, x, t):
@@ -98,8 +104,23 @@ class Sampler():
         # Also note that self.betas = β, self.alphas = α, self.alphas_cumprod = \bar{α} and self.alphas_cumprod_prev[t] = \bar{α_t-1}
         # Note that extract_and_expand() function already selects the index you input to the function (always input t)
         ############################
-        sample = None
-        
+
+        A_t = 1 / torch.sqrt(self.alphas)
+        B_t = - (1 - self.alphas) / (torch.sqrt(1-self.alphas_cumprod) * torch.sqrt(self.alphas))
+
+        A_t = utils.extract_and_expand(A_t, t, x_t)
+        B_t = utils.extract_and_expand(B_t, t, x_t)
+
+        mean = A_t * x_t + B_t * model_output
+
+        # σ_t (log variance → variance → stddev)
+        sigma = torch.exp(0.5 * model_log_variance) 
+
+        add_noise = (t > 0).view(-1, *([1] * (x_t.dim() - 1))).to(x_t.dtype)
+        z = torch.randn_like(x_t) * add_noise
+
+        sample = mean + sigma * z
+
         return sample
 
     def sample_ddim(self, score_model, x_t, model_t, t):
@@ -132,7 +153,7 @@ def main():
     score_model = create_model(**model_config).to(device).eval()
 
     # Sampling
-    for instance in range(conf.total_instances):
+    for instance in range(conf.total_instances): 
         sampler_operator = Sampler()
         x_t = utils.get_noise_x_t(instance, conf.total_instances, device)
         pbar = (list(range(conf.desired_timesteps))[::-1])
