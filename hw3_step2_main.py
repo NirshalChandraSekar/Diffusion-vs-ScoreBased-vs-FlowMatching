@@ -83,6 +83,10 @@ def forward_sde(timesteps, n_samples, dt):
         ############################
         # TODO: Implement the forward SDE
         ############################
+        z = np.random.randn(n_samples)
+        drift = f(x[t-1], t-1)
+        diff = g(t-1)
+        x[t] = x[t-1] + drift * dt + diff * np.sqrt(dt) * z
         x_pdf[t] = p_xt(x_grid, t)
 
     return x, x_pdf
@@ -100,8 +104,35 @@ def reverse_sde(timesteps, n_samples, dt):
         ############################
         # TODO: Implement the reverse SDE
         ############################
+        z = np.random.randn(n_samples)
+        drift_rev = f(x[t], t) - (g(t) ** 2) * grad_log_p_xt(x[t], t)
+        x[t-1] = x[t] - drift_rev * dt + g(t) * np.sqrt(dt) * z
         x_pdf[t-1] = p_xt(x_grid, t-1)
 
+    return x, x_pdf
+
+def forward_ode(timesteps, n_samples, dt):
+    x = np.zeros((timesteps, n_samples))
+    x_pdf = np.zeros((timesteps, x_grid.shape[0]))
+    x0 = sample_mixture_gaussian(n_samples)
+    x[0] = x0
+    x_pdf[0] = mixture_pdf(x_grid)
+    for t in range(1, timesteps):
+        drift_pf = f(x[t-1], t-1) - 0.5 * (g(t-1) ** 2) * grad_log_p_xt(x[t-1], t-1)
+        x[t] = x[t-1] + drift_pf * dt
+        x_pdf[t] = p_xt(x_grid, t)
+    return x, x_pdf
+
+def reverse_ode(timesteps, n_samples, dt):
+    x = np.zeros((timesteps, n_samples))
+    x_pdf = np.zeros((timesteps, x_grid.shape[0]))
+    xT = np.random.normal(0, 1, size=n_samples)
+    x[-1] = xT
+    x_pdf[0] = mixture_pdf(x_grid)
+    for t in range(timesteps - 1, 0, -1):
+        drift_pf = f(x[t], t) - 0.5 * (g(t) ** 2) * grad_log_p_xt(x[t], t)
+        x[t-1] = x[t] - drift_pf * dt
+        x_pdf[t-1] = p_xt(x_grid, t-1)
     return x, x_pdf
 
 forward_x, forward_x_pdf = forward_sde(timesteps, n_samples, dt)
@@ -134,6 +165,33 @@ axes[1].set_ylabel('x')
 save_dir = "./step2_results"
 os.makedirs(save_dir, exist_ok=True)
 save_path = os.path.join(save_dir, f"SDE.png")
+plt.tight_layout()
+plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
+plt.close()
+
+fwd_ode_x, fwd_ode_pdf = forward_ode(timesteps, n_samples, dt)
+rev_ode_x, rev_ode_pdf = reverse_ode(timesteps, n_samples, dt)
+
+fig, axes = plt.subplots(1, 2, figsize=(36, 12))
+for i in range(n_samples):
+    axes[0].plot(fwd_ode_x[:, i], lw=1)
+time = np.arange(timesteps)
+X, Y = np.meshgrid(time, x_grid)
+pcm = axes[0].pcolormesh(X, Y, fwd_ode_pdf.T,
+                         cmap='viridis', shading='auto', vmin=0.0, vmax=fwd_ode_pdf.max())
+axes[0].set_title('Forward PF-ODE')
+axes[0].set_xlabel('Timesteps')
+axes[0].set_ylabel('x')
+axes[0].set_ylim([x_min, x_max])
+for i in range(n_samples):
+    axes[1].plot(rev_ode_x[::-1][:, i], lw=1)
+X, Y = np.meshgrid(time, x_grid)
+pcm = axes[1].pcolormesh(X, Y, rev_ode_pdf[::-1].T,
+                         cmap='viridis', shading='auto', vmin=0.0, vmax=fwd_ode_pdf.max())
+axes[1].set_title('Reverse PF-ODE')
+axes[1].set_xlabel('Timesteps')
+axes[1].set_ylabel('x')
+save_path = os.path.join(save_dir, f"PF_ODE.png")
 plt.tight_layout()
 plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
 plt.close()
